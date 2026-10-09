@@ -1,0 +1,5 @@
+*.jsonl
+*.csv
+*.failed.txt
+products_with_options.txt
+__pycache__/
