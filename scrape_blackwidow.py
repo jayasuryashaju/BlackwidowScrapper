@@ -7,8 +7,8 @@ Pipeline per product:
 Usage examples:
     python scrape_blackwidow.py --limit 25                 # quick test run
     python scrape_blackwidow.py                            # full crawl (~22k products)
-    python scrape_blackwidow.py --ex-vat --markup 35       # use ex-VAT price
-    python scrape_blackwidow.py --rate 105.5               # fixed GBP->INR rate
+    python scrape_blackwidow.py --markup 35                # price = site price (inc. VAT) -> INR -> +35%
+    python scrape_blackwidow.py --rate 105.5               # override today's live GBP->INR rate
 
 Scraped data is cached in a JSONL file, so an interrupted crawl resumes where it
 stopped and the CSV can be rebuilt (e.g. with a different rate) without re-crawling.
@@ -260,7 +260,7 @@ class Pricer:
                 self.rates[currency] = self.fixed_gbp_rate
             else:
                 self.rates[currency] = fetch_rate_to_inr(currency)
-            log(f"1 {currency} = {self.rates[currency]:.4f} INR")
+            log(f"Exchange rate ({time.strftime('%Y-%m-%d')}): 1 {currency} = {self.rates[currency]:.4f} INR")
         return self.rates[currency]
 
     def to_inr_with_markup(self, amount, currency):
@@ -275,15 +275,15 @@ def handle_from_url(url):
     return re.sub(r"-p\.asp$", "", slug)
 
 
-def write_shopify_csv(products, out_path, pricer, use_ex_vat, published):
+def write_shopify_csv(products, out_path, pricer, published):
     seen_handles = set()
     rows = 0
     with open(out_path, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.DictWriter(fh, fieldnames=SHOPIFY_COLUMNS)
         w.writeheader()
         for p in products:
-            base = p["price_ex_vat"] if (use_ex_vat and p.get("price_ex_vat")) else p["price_inc_vat"]
-            price = pricer.to_inr_with_markup(base, p["currency"])
+            # price you would pay on the site (VAT-inclusive) -> INR -> +markup
+            price = pricer.to_inr_with_markup(p["price_inc_vat"], p["currency"])
             handle = handle_from_url(p["url"])
             if handle in seen_handles:
                 handle = f"{handle}-{p['product_id']}"
@@ -337,8 +337,7 @@ def main():
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--delay", type=float, default=0.3, help="seconds each worker waits before a request")
     ap.add_argument("--markup", type=float, default=35.0, help="percent added after conversion to INR")
-    ap.add_argument("--rate", type=float, help="fixed GBP->INR rate instead of the live one")
-    ap.add_argument("--ex-vat", action="store_true", help="use the ex-VAT price instead of the VAT-inclusive one")
+    ap.add_argument("--rate", type=float, help="fixed GBP->INR rate (default: today's live rate)")
     ap.add_argument("--draft", action="store_true", help="import as draft (unpublished) products")
     args = ap.parse_args()
 
@@ -352,7 +351,7 @@ def main():
         sys.exit("No products scraped")
 
     pricer = Pricer(args.markup, args.rate)
-    rows = write_shopify_csv(products, args.out, pricer, args.ex_vat, published=not args.draft)
+    rows = write_shopify_csv(products, args.out, pricer, published=not args.draft)
     with_opts = [p["url"] for p in products if p["has_options"]]
     if with_opts:
         Path("products_with_options.txt").write_text("\n".join(with_opts))
