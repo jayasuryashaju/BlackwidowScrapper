@@ -4,3 +4,4 @@
 products_with_options.txt
 __pycache__/
 *.log
+skipped_zero_price.txt

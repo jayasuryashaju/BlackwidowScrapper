@@ -278,10 +278,14 @@ def handle_from_url(url):
 def write_shopify_csv(products, out_path, pricer, published):
     seen_handles = set()
     rows = 0
+    skipped = []
     with open(out_path, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.DictWriter(fh, fieldnames=SHOPIFY_COLUMNS)
         w.writeheader()
         for p in products:
+            if not p["price_inc_vat"] or p["price_inc_vat"] <= 0:
+                skipped.append(f'{p["sku"]}\t{p["name"]}\t{p["url"]}')  # e.g. "Coming Soon" placeholders
+                continue
             # price you would pay on the site (VAT-inclusive) -> INR -> +markup
             price = pricer.to_inr_with_markup(p["price_inc_vat"], p["currency"])
             handle = handle_from_url(p["url"])
@@ -326,6 +330,9 @@ def write_shopify_csv(products, out_path, pricer, published):
             for pos, src in enumerate(imgs[1:], start=2):
                 w.writerow({"Handle": handle, "Image Src": src, "Image Position": pos, "Image Alt Text": p["name"]})
                 rows += 1
+    if skipped:
+        Path("skipped_zero_price.txt").write_text("\n".join(skipped))
+        log(f"Skipped {len(skipped)} zero-price products (listed in skipped_zero_price.txt)")
     return rows
 
 
